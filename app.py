@@ -469,6 +469,123 @@ def extract_url_features(url):
     
     return features
 
+# 2. PHONE NUMBER ANALYSIS
+def extract_phone_features(phone):
+    """Extract features from phone number"""
+    features = {}
+    
+    # Clean phone number
+    phone_clean = re.sub(r'[^0-9+]', '', phone)
+    
+    features['length'] = len(phone_clean)
+    features['has_plus'] = 1 if '+' in phone else 0
+    features['has_country_code'] = 1 if phone_clean.startswith(('+91', '+1', '+44', '+86')) else 0
+    features['digit_count'] = sum(c.isdigit() for c in phone_clean)
+    features['special_char_count'] = len(phone) - features['digit_count']
+    
+    # Indian number patterns
+    features['is_indian_mobile'] = 1 if re.match(r'^(\+91|91|0)?[6-9]\d{9}$', phone_clean) else 0
+    
+    # Suspicious patterns
+    features['repeated_digits'] = 1 if re.search(r'(\d)\1{4,}', phone_clean) else 0
+    features['sequential_digits'] = 1 if any(phone_clean.find(str(i)*4) >= 0 for i in range(10)) else 0
+    
+    # Common spam prefixes (India)
+    spam_prefixes = ['140', '1800', '1860', '095', '096', '097']
+    features['spam_prefix'] = 1 if any(phone_clean.startswith(prefix) for prefix in spam_prefixes) else 0
+    
+    return features
+
+
+# 3. EMAIL ANALYSIS
+def extract_email_features(email):
+    """Extract features from email address"""
+    features = {}
+    
+    try:
+        # Basic validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        features['is_valid_format'] = 1 if re.match(email_pattern, email) else 0
+        
+        if '@' in email:
+            local, domain = email.split('@', 1)
+            
+            features['local_length'] = len(local)
+            features['domain_length'] = len(domain)
+            features['total_length'] = len(email)
+            features['dots_in_local'] = local.count('.')
+            features['dots_in_domain'] = domain.count('.')
+            features['has_numbers_local'] = 1 if any(c.isdigit() for c in local) else 0
+            features['special_chars'] = sum(1 for c in local if c in '!#$%&*+-/=?^_`{|}~')
+            
+            # Suspicious patterns
+            suspicious_words = ['verify', 'confirm', 'secure', 'account', 'update', 'suspended']
+            features['suspicious_words'] = sum(1 for word in suspicious_words if word in email.lower())
+            
+            # Random string detection
+            features['has_random_string'] = 1 if re.search(r'[a-z]{10,}[0-9]{5,}', local.lower()) else 0
+            
+            # Free email providers
+            free_providers = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']
+            features['is_free_provider'] = 1 if domain.lower() in free_providers else 0
+            
+            # Suspicious TLDs
+            suspicious_tlds = ['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top']
+            features['suspicious_tld'] = 1 if any(domain.lower().endswith(tld) for tld in suspicious_tlds) else 0
+            
+        else:
+            features = {key: 0 for key in ['is_valid_format', 'local_length', 'domain_length', 
+                       'total_length', 'dots_in_local', 'dots_in_domain', 'has_numbers_local',
+                       'special_chars', 'suspicious_words', 'has_random_string', 
+                       'is_free_provider', 'suspicious_tld']}
+    
+    except Exception as e:
+        features = {key: 0 for key in ['is_valid_format', 'local_length', 'domain_length', 
+                   'total_length', 'dots_in_local', 'dots_in_domain', 'has_numbers_local',
+                   'special_chars', 'suspicious_words', 'has_random_string', 
+                   'is_free_provider', 'suspicious_tld']}
+    
+    return features
+
+
+
+# 4. SMS ANALYSIS
+def extract_sms_features(sms):
+    """Extract features from SMS text"""
+    features = {}
+    
+    features['length'] = len(sms)
+    features['word_count'] = len(sms.split())
+    features['uppercase_ratio'] = sum(1 for c in sms if c.isupper()) / len(sms) if len(sms) > 0 else 0
+    features['digit_ratio'] = sum(1 for c in sms if c.isdigit()) / len(sms) if len(sms) > 0 else 0
+    features['special_char_ratio'] = sum(1 for c in sms if not c.isalnum() and not c.isspace()) / len(sms) if len(sms) > 0 else 0
+    
+    # URLs in SMS
+    features['has_url'] = 1 if re.search(r'http[s]?://|www\.', sms.lower()) else 0
+    features['url_count'] = len(re.findall(r'http[s]?://\S+|www\.\S+', sms.lower()))
+    
+    # Phone numbers in SMS
+    features['has_phone'] = 1 if re.search(r'\+?\d[\d\s-]{8,}', sms) else 0
+    
+    # Spam keywords
+    spam_keywords = ['win', 'winner', 'congratulations', 'claim', 'prize', 'free', 'urgent',
+                     'click', 'verify', 'account', 'suspended', 'limited', 'offer', 'cash',
+                     'loan', 'credit', 'debt', 'investment', 'inheritance']
+    features['spam_keywords'] = sum(1 for kw in spam_keywords if kw in sms.lower())
+    
+    # Urgency words
+    urgency_words = ['urgent', 'immediate', 'now', 'hurry', 'limited', 'expire', 'today']
+    features['urgency_words'] = sum(1 for word in urgency_words if word in sms.lower())
+    
+    # Money related
+    features['has_money'] = 1 if re.search(r'₹|\$|rs\.?|rupees|dollars|money|cash|amount', sms.lower()) else 0
+    
+    # Exclamation marks
+    features['exclamation_count'] = sms.count('!')
+    
+    return features
+
+
 # ============================================
 # LOAD MODELS (MOCK FOR DEMO)
 # ============================================
@@ -533,6 +650,130 @@ def predict_url(url, rf_model, tf_model, scaler):
         'recommendation': recommendation,
         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
+
+def predict_phone(phone):
+    """Predict phone number threat level"""
+    features = extract_phone_features(phone)
+    
+    risk_score = 0
+    if features['is_indian_mobile'] == 0: risk_score += 0.3
+    if features['repeated_digits'] == 1: risk_score += 0.2
+    if features['spam_prefix'] == 1: risk_score += 0.4
+    if features['length'] < 10 or features['length'] > 13: risk_score += 0.1
+    
+    confidence = min(risk_score, 0.95)
+    
+    if confidence > 0.6:
+        return {
+            'classification': 'SPAM/SCAM',
+            'confidence': confidence,
+            'icon': '🚨',
+            'recommendation': '⛔ DO NOT ANSWER - Potential scam number',
+            'features': features,
+            'type': 'PHONE'
+        }
+    elif confidence > 0.3:
+        return {
+            'classification': 'SUSPICIOUS',
+            'confidence': confidence,
+            'icon': '⚠️',
+            'recommendation': '⚠️ BE CAREFUL - Unknown/suspicious number',
+            'features': features,
+            'type': 'PHONE'
+        }
+    else:
+        return {
+            'classification': 'SAFE',
+            'confidence': 1 - confidence,
+            'icon': '✅',
+            'recommendation': '✅ Appears to be legitimate',
+            'features': features,
+            'type': 'PHONE'
+        }
+
+def predict_email(email):
+    """Predict email threat level"""
+    features = extract_email_features(email)
+    
+    risk_score = 0
+    if features['is_valid_format'] == 0: risk_score += 0.4
+    if features['suspicious_words'] > 1: risk_score += 0.3
+    if features['suspicious_tld'] == 1: risk_score += 0.2
+    if features['has_random_string'] == 1: risk_score += 0.1
+    
+    confidence = min(risk_score, 0.95)
+    
+    if confidence > 0.6:
+        return {
+            'classification': 'PHISHING',
+            'confidence': confidence,
+            'icon': '🚨',
+            'recommendation': '⛔ DO NOT TRUST - Potential phishing email',
+            'features': features,
+            'type': 'EMAIL'
+        }
+    elif confidence > 0.3:
+        return {
+            'classification': 'SUSPICIOUS',
+            'confidence': confidence,
+            'icon': '⚠️',
+            'recommendation': '⚠️ VERIFY SENDER - Suspicious email',
+            'features': features,
+            'type': 'EMAIL'
+        }
+    else:
+        return {
+            'classification': 'SAFE',
+            'confidence': 1 - confidence,
+            'icon': '✅',
+            'recommendation': '✅ Appears legitimate',
+            'features': features,
+            'type': 'EMAIL'
+        }
+
+def predict_sms(sms):
+    """Predict SMS threat level"""
+    features = extract_sms_features(sms)
+    
+    risk_score = 0
+    if features['spam_keywords'] > 3: risk_score += 0.3
+    if features['urgency_words'] > 1: risk_score += 0.2
+    if features['has_url'] == 1: risk_score += 0.25
+    if features['has_money'] == 1: risk_score += 0.15
+    if features['uppercase_ratio'] > 0.5: risk_score += 0.1
+    
+    confidence = min(risk_score, 0.95)
+    
+    if confidence > 0.6:
+        return {
+            'classification': 'SPAM/SCAM',
+            'confidence': confidence,
+            'icon': '🚨',
+            'recommendation': '⛔ DELETE IMMEDIATELY - Spam/Scam SMS',
+            'features': features,
+            'type': 'SMS'
+        }
+    elif confidence > 0.3:
+        return {
+            'classification': 'SUSPICIOUS',
+            'confidence': confidence,
+            'icon': '⚠️',
+            'recommendation': '⚠️ BE CAUTIOUS - Potential spam',
+            'features': features,
+            'type': 'SMS'
+        }
+    else:
+        return {
+            'classification': 'SAFE',
+            'confidence': 1 - confidence,
+            'icon': '✅',
+            'recommendation': '✅ Appears legitimate',
+            'features': features,
+            'type': 'SMS'
+        }
+
+# ye main kuch code add kr rha hun agr ye repeate hota hai to ise main remove kr dunga last me
+
 
 # ============================================
 # MAIN APPLICATION
@@ -1099,7 +1340,7 @@ def main():
             <span class='feature-badge'>Hybrid AI</span>
         </div>
         <p style='color: #8b92a7; margin-top: 1.5rem; font-size: 0.9rem;'>
-            © 2024 CHILYAN Technology. All rights reserved.
+            © 2026 CITADEL CODEX inigrated with CHILYAN Technology. All rights reserved.
         </p>
     </div>
     """, unsafe_allow_html=True)
